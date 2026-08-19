@@ -3,6 +3,7 @@ import sys
 import numpy as np
 import soundfile as sf
 import pyloudnorm as pyln
+from scipy.signal import resample_poly
 from pathlib import Path
 from itertools import product, combinations
 import warnings
@@ -126,6 +127,38 @@ def trim_to_length(audio, target_length_samples):
     
     return audio[remove_start:current_length - remove_end]
 
+def apply_true_peak_ceiling(audio, sr, ceiling_db=-1.0):
+    """
+    Apply a true-peak ceiling of ceiling_db dBFS to the audio.
+
+    Inter-sample peaks are detected by 4x oversampling (per ITU-R BS.1770);
+    if the true peak exceeds the ceiling, the whole signal is scaled down
+    so the true peak sits exactly at the ceiling.
+
+    Parameters:
+    -----------
+    audio : numpy.ndarray
+        Audio signal (1D mono or 2D with channels on axis 1)
+    sr : int
+        Sample rate
+    ceiling_db : float
+        True-peak ceiling in dBFS
+
+    Returns:
+    --------
+    numpy.ndarray : Audio with true peak <= ceiling
+    """
+    ceiling_linear = 10**(ceiling_db / 20)
+
+    # 4x oversample to estimate the inter-sample (true) peak
+    oversampled = resample_poly(audio, 4, 1, axis=0)
+    true_peak = np.max(np.abs(oversampled))
+
+    if true_peak > ceiling_linear:
+        gain = ceiling_linear / true_peak
+        return audio * gain
+    return audio
+
 def align_and_mix(background, foregrounds, sr):
     """
     Align and mix background with multiple foreground tracks.
@@ -175,10 +208,8 @@ def align_and_mix(background, foregrounds, sr):
     bg_mono = ensure_mono(background)
     mixed = bg_mono + total_foreground
     
-    # Normalize to prevent clipping
-    peak = np.max(np.abs(mixed))
-    if peak > 1.0:
-        mixed = mixed / peak * 0.99
+    # Apply true-peak ceiling (-1 dBFS)
+    mixed = apply_true_peak_ceiling(mixed, sr, ceiling_db=-1.0)
     
     return mixed
 
