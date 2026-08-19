@@ -1,0 +1,2 @@
+ssh -L 0.0.0.0:8123:localhost:8123 u036625@g09.hlt.inesc-id.pt
+CUDA_VISIBLE_DEVICES=3 uv run vllm serve nvidia/audio-flamingo-3-hf --port 8123
